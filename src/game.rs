@@ -8,6 +8,7 @@ use bevy::transform::commands;
 use bevy::utils::HashSet;
 use bevy::{prelude::*, window::WindowResolution};
 use devcaders::{DevcadeControls, Player};
+use itertools::Itertools;
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 
@@ -179,6 +180,11 @@ impl Plugin for GamePlugin {
           .in_set(OnUpdate(AppState::Game)),
         merge_handler
           .after(coin_push_handler)
+          .before(render)
+          .in_set(OnUpdate(AppState::Game)),
+        coin_fall
+          // .before(merge_handler)
+          .before(game_input)
           .before(render)
           .in_set(OnUpdate(AppState::Game)),
       ));
@@ -387,16 +393,63 @@ fn get_connected(
   Some((init_obj_type, set.into_iter().collect()))
 }
 
+fn coin_fall(mut coin_query: Query<(&mut Position, &Owned, &Player), With<BoardObj>>) {
+  for player in [Player::P1, Player::P2] {
+    let mut coins_to_shift = Vec::new();
+    let mut coin_board: [[bool; BOARD_DIM.1 as usize]; BOARD_DIM.0 as usize] =
+      [[false; BOARD_DIM.1 as usize]; BOARD_DIM.0 as usize];
+    for (coin_pos, owned, &coin_player) in &mut coin_query {
+      if owned.0 || coin_player != player {
+        continue;
+      }
+      let row = coin_pos.row as usize;
+      let col = coin_pos.col as usize;
+      coin_board[col][row] = true;
+    }
+    println!("{:?}", coin_board);
+    for (col, column) in coin_board.iter().enumerate() {
+      let mut gap_size: usize = 0;
+      println!("{}, {:?}", col, column);
+      for (row, &coin) in column.iter().enumerate() {
+        if !coin {
+          gap_size += 1;
+        }
+        println!("{:?}, {}", coin, gap_size);
+        if coin && gap_size > 0 {
+          coins_to_shift.push((
+            Position {
+              col: col as i32,
+              row: row as i32,
+            },
+            gap_size,
+          ));
+        }
+      }
+    }
+    if !coins_to_shift.is_empty() {
+      println!("{:?}", coins_to_shift);
+    }
+    for (pos, gap) in coins_to_shift {
+      coin_query
+        .iter_mut()
+        .find(|(coin_pos, owned, &coin_player)| {
+          player == coin_player && !owned.0 && coin_pos.col == pos.col && coin_pos.row == pos.row
+        })
+        .unwrap()
+        .0
+        .row -= gap as i32;
+    }
+  }
+}
+
 fn merge_handler(
-  mut events: EventReader<MergeEvent>,
+  mut merge_events: EventReader<MergeEvent>,
   coin_query: Query<(Entity, &Position, &Player, &ObjType), With<BoardObj>>,
   mut commands: Commands,
   asset_server: Res<AssetServer>,
   render_info: Res<RenderInfo>,
 ) {
-  // let mut entities_to_remove: Vec<Entity> = Vec::new();
-  // let mut entities_to_spawn = Vec::new();
-  for ev in events.iter() {
+  for ev in merge_events.iter() {
     let coin_list: Vec<(Entity, Position, &Player, ObjType)> = coin_query
       .iter()
       .filter(|&(_, _, &player, _)| player == ev.player)
@@ -405,14 +458,9 @@ fn merge_handler(
     let mut pos = ev.position.clone();
     let (obj_type, coins) = get_connected(&coin_list, pos, ev.player).unwrap();
     let mut coin_count = coins.len();
-    println!("{:?}, {}\n{:?}\n", obj_type, coins.len(), coins);
     // while coin_count >= obj_type.get_merge_count() {
     if coin_count >= obj_type.get_merge_count() {
       // actually merge
-      // println!(
-      //   "\nmerging {coin_count} {:?} coins that are at {:?}\n",
-      //   obj_type, coins
-      // );
 
       // create new coin
       let new_pos = coins
@@ -422,7 +470,6 @@ fn merge_handler(
         .to_owned()
         .1;
       if let Some(new_type) = obj_type.get_upgrade() {
-        println!("new {:?} at: {:?}", new_type, new_pos);
         BoardObj::spawn(
           &mut commands,
           new_type,
@@ -433,8 +480,6 @@ fn merge_handler(
           &render_info,
         );
       }
-      // entities_to_spawn.push((new_type, new_pos, ev.player));
-      // coin_list.push((None, new_pos, &ev.player, new_type));
       // remove existing coins
       for (entity, _) in coins {
         commands.entity(entity).despawn();

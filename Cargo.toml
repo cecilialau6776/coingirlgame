@@ -10,6 +10,7 @@ rand = "0.8.5"
 # devcaders = "0.2.2"
 devcaders = {path = "../devcaders"}
 bevy_turborand = "0.5.0"
+itertools = "0.10.5"
 
 [dependencies.bevy]
 version = "0.10.0"
