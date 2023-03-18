@@ -12,7 +12,7 @@ pub enum AppState {
   MakeMap,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Component)]
 pub enum ObjType {
   One,
   Five,
@@ -34,6 +34,30 @@ impl ObjType {
       ObjType::FiveHundred => "five_hundred.png",
       ObjType::RankUp => "rank_up.png",
       ObjType::EraseItem => "erase.png",
+    }
+  }
+  pub fn get_merge_count(&self) -> usize {
+    match self {
+      ObjType::One => 5,
+      ObjType::Five => 2,
+      ObjType::Ten => 5,
+      ObjType::Fifty => 2,
+      ObjType::OneHundred => 5,
+      ObjType::FiveHundred => 2,
+      ObjType::RankUp => 2,
+      ObjType::EraseItem => 2,
+    }
+  }
+  pub fn get_upgrade(&self) -> Option<Self> {
+    match self {
+      ObjType::One => Some(ObjType::Five),
+      ObjType::Five => Some(ObjType::Ten),
+      ObjType::Ten => Some(ObjType::Fifty),
+      ObjType::Fifty => Some(ObjType::OneHundred),
+      ObjType::OneHundred => Some(ObjType::FiveHundred),
+      ObjType::FiveHundred => None,
+      ObjType::RankUp => None,
+      ObjType::EraseItem => None,
     }
   }
 }
@@ -60,7 +84,7 @@ pub const UI_Z: f32 = 20.0;
 // Board Dimensions (width, height)
 pub const BOARD_DIM: (usize, usize) = (7, 12);
 
-#[derive(Clone, Copy)]
+#[derive(Component, Clone, Copy)]
 pub struct ObjInfo {
   pub obj_type: ObjType,
   pub weight: i32,

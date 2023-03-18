@@ -1,8 +1,11 @@
+use std::cmp::Ordering;
 use std::time::Duration;
 
 use bevy::prelude::shape::Quad;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::time::Stopwatch;
+use bevy::transform::commands;
+use bevy::utils::HashSet;
 use bevy::{prelude::*, window::WindowResolution};
 use devcaders::{DevcadeControls, Player};
 use rand::distributions::WeightedIndex;
@@ -10,10 +13,16 @@ use rand::prelude::*;
 
 use crate::{consts::*, GameInfo, RenderInfo};
 
+#[derive(PartialEq, Eq)]
 enum ActionType {
   CoinPull,
   CoinPush,
   NewRow,
+}
+
+struct MergeEvent {
+  player: Player,
+  position: Position,
 }
 
 struct GameActionEvent {
@@ -21,81 +30,122 @@ struct GameActionEvent {
   action_type: ActionType,
 }
 
-#[derive(Component)]
-struct CoinGirl {
-  pub player: Player,
-  pub col: usize,
-  pub timer: Timer,
-  obj_count: usize,
-  obj_type: ObjType,
-}
-impl CoinGirl {
-  fn new(player: Player) -> CoinGirl {
-    let mut timer = Timer::from_seconds(1.0, TimerMode::Once);
-    timer.pause();
-    CoinGirl {
-      player,
-      col: 3,
-      timer,
-      obj_count: 0,
-      obj_type: ObjType::One,
-    }
-  }
+#[derive(Component, Clone)]
+struct InputTimer {
+  timer: Timer,
 }
 
 #[derive(Component, Clone)]
-struct BoardObj {
-  pub col: usize,
-  pub row: usize,
-  pub obj_info: ObjInfo,
-  pub owned: bool,
-  pub player: Player,
+struct Inventory {
+  obj_count: usize,
+  obj_type: ObjType,
 }
 
-#[derive(Bundle, Clone)]
-struct BoardObjBundle {
-  board_obj: BoardObj,
-  sprite_bundle: SpriteBundle,
+#[derive(Component, Clone)]
+struct CoinGirl;
+impl CoinGirl {
+  fn spawn(commands: &mut Commands, player: Player, render_info: &Res<RenderInfo>) -> Entity {
+    let mut timer = InputTimer {
+      timer: Timer::from_seconds(1.0, TimerMode::Once),
+    };
+    timer.timer.pause();
+    commands
+      .spawn((
+        CoinGirl,
+        player,
+        Position {
+          col: BOARD_DIM.0 / 2,
+          row: BOARD_DIM.1 - 1,
+        },
+        timer,
+        Inventory {
+          obj_count: 0,
+          obj_type: ObjType::One,
+        },
+        SpriteBundle {
+          transform: Transform {
+            translation: render_info
+              .obj_translate(player, BOARD_DIM.0 / 2, BOARD_DIM.1 - 1)
+              .extend(GIRL_Z),
+            scale: Vec3::splat(render_info.coin_size * GIRL_SIZE_FACTOR),
+            ..default()
+          },
+          sprite: Sprite {
+            color: Color::rgb(50.0 / 255.0, 168.0 / 255.0, 82.0 / 255.0),
+            ..default()
+          },
+          ..default()
+        },
+      ))
+      .id()
+  }
 }
-impl BoardObjBundle {
-  fn new(
-    obj_info: ObjInfo,
+
+#[derive(PartialOrd, Hash, PartialEq, Eq, Debug, Component, Clone, Copy)]
+struct Position {
+  pub col: usize,
+  pub row: usize,
+}
+impl Ord for Position {
+  fn cmp(&self, other: &Self) -> Ordering {
+    if self == other {
+      return Ordering::Equal;
+    }
+    if self.col < other.col {
+      return Ordering::Less;
+    } else if self.row > other.row {
+      return Ordering::Less;
+    }
+    return Ordering::Greater;
+  }
+}
+
+#[derive(Component, Clone, PartialEq, Eq)]
+struct Owned(bool);
+
+#[derive(Component, Clone)]
+struct BoardObj;
+
+impl BoardObj {
+  fn spawn(
+    commands: &mut Commands,
+    obj_type: ObjType,
     col: usize,
     row: usize,
     player: Player,
     asset_server: &Res<AssetServer>,
     render_info: &Res<RenderInfo>,
-  ) -> Self {
-    BoardObjBundle {
-      board_obj: BoardObj {
-        col,
-        row,
-        obj_info,
+  ) -> Entity {
+    commands
+      .spawn((
+        BoardObj,
+        Position { col, row },
+        obj_type,
         player,
-        owned: false,
-      },
-      sprite_bundle: SpriteBundle {
-        transform: Transform {
-          translation: render_info
-            .obj_translate(player, col, row) //(top_left_coin_pos + Vec2::new(col as f32, -(row as f32)) * coin_size)
-            .extend(COIN_Z),
-          scale: Vec3::splat(render_info.coin_size / COIN_SIZE_PX),
+        SpriteBundle {
+          transform: Transform {
+            translation: render_info
+              .obj_translate(player, col, row) //(top_left_coin_pos + Vec2::new(col as f32, -(row as f32)) * coin_size)
+              .extend(COIN_Z),
+            scale: Vec3::splat(render_info.coin_size / COIN_SIZE_PX),
+            ..default()
+          },
+          texture: asset_server.load(obj_type.get_path()),
           ..default()
         },
-        texture: asset_server.load(obj_info.obj_type.get_path()),
-        ..default()
-      },
-    }
+        Owned(false),
+      ))
+      .id()
   }
 
-  fn other_player(&self, render_info: &Res<RenderInfo>) -> Self {
-    let mut obj = self.clone();
-    obj.board_obj.player = Player::P2;
-    obj.sprite_bundle.transform.translation = render_info
-      .obj_translate(Player::P2, obj.board_obj.col, obj.board_obj.row)
-      .extend(COIN_Z);
-    obj
-  }
+  //   fn other_player(&self, render_info: &Res<RenderInfo>) -> Self {
+  //     let mut obj = self.clone();
+  //     obj.player = Player::P2;
+  //     obj.sprite_bundle.transform.translation = render_info
+  //       .obj_translate(Player::P2, obj.position.col, obj.position.row)
+  //       .extend(COIN_Z);
+  //     obj
+  //   }
 }
 
 #[derive(Component)]
@@ -109,6 +159,7 @@ impl Plugin for GamePlugin {
   fn build(&self, app: &mut App) {
     app
       .add_event::<GameActionEvent>()
+      .add_event::<MergeEvent>()
       .add_systems((
         setup_game.in_schedule(OnEnter(AppState::Game)),
         time.in_set(OnUpdate(AppState::Game)),
@@ -116,125 +167,398 @@ impl Plugin for GamePlugin {
         // cleanup_game.in_schedule(OnExit(AppState::Game)),
       ))
       .add_systems((
-        game_input.in_set(OnUpdate(AppState::Game)),
-        game_action_event_handler.in_set(OnUpdate(AppState::Game)),
+        game_input.before(render).in_set(OnUpdate(AppState::Game)),
+        coin_pull_handler
+          .after(game_input)
+          .in_set(OnUpdate(AppState::Game)),
+        coin_push_handler
+          .after(game_input)
+          .in_set(OnUpdate(AppState::Game)),
+        new_row_handler
+          .after(game_input)
+          .in_set(OnUpdate(AppState::Game)),
+        merge_handler
+          .after(coin_push_handler)
+          .before(render)
+          .in_set(OnUpdate(AppState::Game)),
       ));
   }
 }
 
-fn time(time: Res<Time>, mut girl_query: Query<&mut CoinGirl>) {
+fn time(time: Res<Time>, mut girl_query: Query<&mut InputTimer>) {
   for mut girl in girl_query.iter_mut() {
     girl.timer.tick(time.delta());
   }
 }
 
 fn render(
-  mut set: ParamSet<(
-    Query<(&mut Transform, &BoardObj), With<BoardObj>>,
-    Query<(&mut Transform, &CoinGirl), With<CoinGirl>>,
-  )>,
+  mut query: Query<(&mut Transform, &Position, &Player)>,
   game_state: Res<GameInfo>,
   render_info: Res<RenderInfo>,
 ) {
-  // render girl
-  for (mut girl_transform, girl) in set.p1().iter_mut() {
-    girl_transform.translation = render_info
-      .obj_translate(girl.player, girl.col, BOARD_DIM.1 - 1)
-      .extend(GIRL_Z);
-  }
-
-  // render coins
-  for (mut transform, obj) in set.p0().iter_mut() {
+  for (mut transform, position, &player) in &mut query {
+    let z_index = transform.translation.z;
     transform.translation = render_info
-      .obj_translate(obj.player, obj.col, obj.row)
-      .extend(GIRL_Z);
+      .obj_translate(player, position.col, position.row)
+      .extend(z_index);
   }
+  // // render girl
+  // for (mut girl_transform, girl) in set.p1().iter_mut() {
+  //   girl_transform.translation = render_info
+  //     .obj_translate(girl.player, girl.col, BOARD_DIM.1 - 1)
+  //     .extend(GIRL_Z);
+  // }
+
+  // // render coins
+  // for (mut transform, obj) in set.p0().iter_mut() {
+  //   transform.translation = render_info
+  //     .obj_translate(obj.player, obj.col, obj.row)
+  //     .extend(GIRL_Z);
+  // }
 }
 
 fn game_input(
   input: DevcadeControls,
-  mut query: Query<&mut CoinGirl, With<CoinGirl>>,
+  mut girl_query: Query<
+    (&Player, &mut Position, &mut InputTimer),
+    (With<CoinGirl>, Without<BoardObj>),
+  >,
+  mut obj_query: Query<(&Player, &mut Position, &Owned), With<BoardObj>>,
   mut action_writer: EventWriter<GameActionEvent>,
   time_step: Res<FixedTime>,
 ) {
-  for mut girl in &mut query {
-    if input.just_pressed(girl.player, devcaders::Button::StickLeft) {
-      if girl.col > 0 {
-        girl.col -= 1;
+  for (&player, mut position, mut timer) in &mut girl_query {
+    if input.just_pressed(player, devcaders::Button::StickLeft) {
+      if position.col > 0 {
+        position.col -= 1;
+        for (&coin_player, mut coin_pos, owned) in &mut obj_query {
+          if player == coin_player && owned.0 {
+            coin_pos.col -= 1;
+          }
+        }
       }
     }
-    if input.just_pressed(girl.player, devcaders::Button::StickRight) {
-      if girl.col < 6 {
-        girl.col += 1;
+    if input.just_pressed(player, devcaders::Button::StickRight) {
+      if position.col < 6 {
+        position.col += 1;
+        for (&coin_player, mut coin_pos, owned) in &mut obj_query {
+          if player == coin_player && owned.0 {
+            coin_pos.col += 1;
+          }
+        }
       }
     }
 
-    if input.just_pressed(girl.player, devcaders::Button::StickDown) {
+    if input.just_pressed(player, devcaders::Button::StickDown) {
       // timer is running and finished
-      if !girl.timer.paused() && !girl.timer.finished() {
+      if !timer.timer.paused() && !timer.timer.finished() {
         // new row
         action_writer.send(GameActionEvent {
-          player: girl.player,
+          player,
           action_type: ActionType::NewRow,
         });
-        girl.timer.pause();
+        timer.timer.pause();
       } else {
         // timer is paused or finished
-        girl.timer.reset();
-        girl.timer.unpause();
+        timer.timer.reset();
+        timer.timer.unpause();
       }
     }
 
-    if input.just_pressed(girl.player, devcaders::Button::A1) {
+    if input.just_pressed(player, devcaders::Button::A1) {
       action_writer.send(GameActionEvent {
-        player: girl.player,
+        player,
         action_type: ActionType::CoinPull,
       });
     }
-    if input.just_pressed(girl.player, devcaders::Button::A2) {
+    if input.just_pressed(player, devcaders::Button::A2) {
       action_writer.send(GameActionEvent {
-        player: girl.player,
+        player,
         action_type: ActionType::CoinPush,
       });
     }
   }
 }
 
-fn game_action_event_handler(
+fn coin_push_handler(
   mut events: EventReader<GameActionEvent>,
-  mut set: ParamSet<(
-    Query<&mut BoardObj>,
-    Query<(&mut Transform, &CoinGirl), With<CoinGirl>>,
-  )>,
+  mut coin_query: Query<(Entity, &mut Position, &Player, &ObjType, &mut Owned), With<BoardObj>>,
+  mut girl_query: Query<(&mut Inventory, &Player, &Position), (With<CoinGirl>, Without<BoardObj>)>,
+  mut commands: Commands,
+  asset_server: Res<AssetServer>,
+  render_info: Res<RenderInfo>,
+  mut merge_event_writer: EventWriter<MergeEvent>,
+) {
+  for ev in events.iter() {
+    if ev.action_type != ActionType::CoinPush {
+      return;
+    }
+    for (mut inventory, &girl_player, girl_pos) in &mut girl_query {
+      if girl_player != ev.player {
+        continue;
+      }
+      if inventory.obj_count == 0 {
+        continue;
+      }
+
+      let mut max_row = 0;
+      let mut same_coin_types = Vec::new();
+      for (entity, coin_pos, &coin_player, &obj_type, owned) in &coin_query {
+        if coin_player != ev.player || owned.0 {
+          continue;
+        }
+        if obj_type == inventory.obj_type {
+          same_coin_types.push((entity, coin_pos.clone()));
+        }
+        if coin_pos.col != girl_pos.col {
+          continue;
+        }
+        if coin_pos.row + 1 > max_row {
+          max_row = coin_pos.row + 1;
+        }
+      }
+
+      let placed_coin_pos = Position {
+        col: girl_pos.col,
+        row: girl_pos.row - (BOARD_DIM.1 - max_row - inventory.obj_count),
+      };
+      // move inv back to board
+      for (entity, mut coin_pos, &coin_player, &obj_type, mut owned) in &mut coin_query {
+        if coin_player != ev.player || !owned.0 {
+          continue;
+        }
+        coin_pos.row -= BOARD_DIM.1 - max_row - inventory.obj_count;
+        owned.0 = false;
+        same_coin_types.push((entity, coin_pos.to_owned().clone()));
+      }
+      inventory.obj_count = 0;
+      merge_event_writer.send(MergeEvent {
+        player: ev.player,
+        position: placed_coin_pos,
+      });
+    }
+  }
+}
+
+fn get_connected(
+  coin_list: &Vec<(Option<Entity>, Position, &Player, ObjType)>,
+  position: Position,
+  player: Player,
+) -> Option<(ObjType, Vec<Position>)> {
+  // println!("{:?}", position);
+  // for c in coin_query {
+  //   if *c.2 == player {//     println!("{:?} {:?}", c.1, c.3);
+  //   }
+  // }
+  let coin = coin_list
+    .iter()
+    .find(|&(_, pos, &q_player, _)| *pos == position && q_player == player)?
+    .to_owned();
+  let init_obj_type = coin.3.to_owned();
+  let mut set = HashSet::new();
+  let mut stack = Vec::new();
+  stack.push(position);
+  while !stack.is_empty() {
+    let coin = stack.pop().unwrap();
+    if !set.contains(&coin) {
+      if coin.col > 0 {
+        if let Some(adj_coin) = coin_list.iter().find(|(_, pos, _, obj_type)| {
+          *obj_type == init_obj_type && pos.col == coin.col - 1 && pos.row == coin.row
+        }) {
+          stack.push(adj_coin.1.to_owned());
+        }
+      }
+      if let Some(adj_coin) = coin_list.iter().find(|(_, pos, _, obj_type)| {
+        *obj_type == init_obj_type && pos.col == coin.col + 1 && pos.row == coin.row
+      }) {
+        stack.push(adj_coin.1.to_owned());
+      }
+      if coin.row > 0 {
+        if let Some(adj_coin) = coin_list.iter().find(|(_, pos, _, obj_type)| {
+          *obj_type == init_obj_type && pos.col == coin.col && pos.row == coin.row - 1
+        }) {
+          stack.push(adj_coin.1.to_owned());
+        }
+      }
+      if let Some(adj_coin) = coin_list.iter().find(|(_, pos, _, obj_type)| {
+        *obj_type == init_obj_type && pos.col == coin.col && pos.row == coin.row + 1
+      }) {
+        stack.push(adj_coin.1.to_owned());
+      }
+      set.insert(coin);
+    }
+  }
+  Some((init_obj_type, set.into_iter().collect()))
+}
+
+fn merge_handler(
+  mut events: EventReader<MergeEvent>,
+  coin_query: Query<(Entity, &Position, &Player, &ObjType), With<BoardObj>>,
+  mut commands: Commands,
+  asset_server: Res<AssetServer>,
+  render_info: Res<RenderInfo>,
+) {
+  let mut entities_to_remove: Vec<Entity> = Vec::new();
+  let mut entities_to_spawn = Vec::new();
+  for ev in events.iter() {
+    let mut coin_list: Vec<(Option<Entity>, Position, &Player, ObjType)> = coin_query
+      .iter()
+      .filter(|&(_, _, &player, _)| player == ev.player)
+      .map(|x| (Some(x.0), x.1.to_owned(), x.2, x.3.to_owned()))
+      .collect();
+    let mut pos = ev.position.clone();
+    let (mut obj_type, mut coins) = get_connected(&coin_list, pos, ev.player).unwrap();
+    let mut coin_count = coins.len();
+    println!("{:?}, {}\n{:?}\n", obj_type, coins.len(), coins);
+    // while coin_count >= obj_type.get_merge_count() {
+    while coin_count >= obj_type.get_merge_count() {
+      // actually merge
+      // println!(
+      //   "\nmerging {coin_count} {:?} coins that are at {:?}\n",
+      //   obj_type, coins
+      // );
+      // create new coin
+      let new_pos = coins
+        .iter()
+        .max_by(|&pos_a, &pos_b| pos_a.cmp(pos_b))
+        .unwrap()
+        .to_owned();
+      if let Some(new_type) = obj_type.get_upgrade() {
+        println!("new {:?} at: {:?}", new_type, new_pos);
+        entities_to_spawn.push((new_type, new_pos, ev.player));
+        coin_list.push((None, new_pos, &ev.player, new_type));
+      }
+
+      // remove existing coins
+      println!("removing coins at {:?}", coins);
+      for coin_pos in coins.iter() {
+        println!("entities to spawn pre retain: {:?}", entities_to_spawn);
+        entities_to_spawn.retain(|&(spawn_type, pos, player)| {
+          !(spawn_type == obj_type && *coin_pos == pos && player == ev.player)
+        });
+        println!("entities to spawn post retain: {:?}", entities_to_spawn);
+        if let Some(coin_index) = coin_list
+          .iter()
+          .position(|&(entity, pos, _, _)| *coin_pos == pos)
+        {
+          let (entity, _, _, _) = coin_list.remove(coin_index);
+          if let Some(e) = entity {
+            entities_to_remove.push(e);
+          }
+        }
+      }
+      println!("entities to remove: {:?}", entities_to_remove);
+
+      pos = new_pos;
+      match get_connected(&coin_list, pos, ev.player) {
+        Some((a, b)) => {
+          obj_type = a;
+          coins = b;
+        }
+        None => break,
+      }
+      coin_count = coins.len();
+    }
+    println!(
+      "removing: {:?}\nspawning: {:?}",
+      entities_to_remove, entities_to_spawn
+    );
+  }
+  for entity in entities_to_remove {
+    commands.entity(entity).despawn();
+  }
+  for (obj_type, pos, player) in entities_to_spawn {
+    BoardObj::spawn(
+      &mut commands,
+      obj_type,
+      pos.col,
+      pos.row,
+      player,
+      &asset_server,
+      &render_info,
+    );
+  }
+}
+
+fn coin_pull_handler(
+  mut events: EventReader<GameActionEvent>,
+  mut girl_query: Query<(&Position, &Player, &mut Inventory), (With<CoinGirl>, Without<BoardObj>)>,
+  mut coin_query: Query<
+    (Entity, &mut Position, &Player, &ObjType, &mut Owned),
+    (With<BoardObj>, Without<CoinGirl>),
+  >,
   asset_server: Res<AssetServer>,
   render_info: Res<RenderInfo>,
   mut commands: Commands,
 ) {
   for ev in events.iter() {
-    match ev.action_type {
-      ActionType::CoinPull => {
-        // for (_, girl) in set.p1().iter() {
-        //   for mut obj in set.p0().iter_mut() {
-        //     // if !obj.owned && obj.player == ev.player && obj.col ==
-        //   }
-        // }
+    if ev.action_type != ActionType::CoinPull {
+      return;
+    }
+    for (girl_pos, &girl_player, mut inventory) in &mut girl_query {
+      if ev.player != girl_player {
+        continue;
       }
-      ActionType::CoinPush => {}
-      ActionType::NewRow => {
-        // move existing coins down one
-        for mut obj in set.p0().iter_mut() {
-          if !obj.owned && obj.player == ev.player {
-            obj.row += 1;
+      if inventory.obj_count != 0 {
+        return;
+      }
+      let mut coins = Vec::new();
+      for (entity, coin_pos, &coin_player, &obj, owned) in &mut coin_query {
+        if !owned.0 && girl_player == coin_player && girl_pos.col == coin_pos.col {
+          coins.push((coin_pos, obj, entity, owned));
+        }
+      }
+      coins.sort_by(|(a, _, _, _), (b, _, _, _)| b.row.cmp(&a.row));
+      let first_coin = coins.first();
+      let mut valid_coin_pos = Vec::new();
+      if let Some(&(_, coin_type, _, _)) = first_coin {
+        for (coin_pos, obj_type, entity, mut owned) in coins {
+          if coin_type != obj_type {
+            break;
           }
+          valid_coin_pos.push((coin_pos, entity));
+          owned.0 = true;
         }
-        // spawn a new row
-        let mut rng = thread_rng();
-        let dist = WeightedIndex::new(BOARD_OBJS.iter().map(|item| item.weight)).unwrap();
-        for col in 0..BOARD_DIM.0 {
-          let item = BOARD_OBJS[dist.sample(&mut rng)].clone();
-          let obj = BoardObjBundle::new(item, col, 0, ev.player, &asset_server, &render_info);
-          commands.spawn(obj);
+        let move_down_by = 12 - 1 - valid_coin_pos.first().unwrap().0.row;
+        inventory.obj_type = coin_type;
+        inventory.obj_count = valid_coin_pos.len();
+        for (mut pos, entity) in valid_coin_pos {
+          pos.row += move_down_by;
         }
+      }
+    }
+  }
+}
+
+fn new_row_handler(
+  mut events: EventReader<GameActionEvent>,
+  mut query: Query<(&mut Position, &Player, &Owned), With<BoardObj>>,
+  asset_server: Res<AssetServer>,
+  render_info: Res<RenderInfo>,
+  mut commands: Commands,
+) {
+  for ev in events.iter() {
+    if ev.action_type == ActionType::NewRow {
+      // move existing coins down one
+      for (mut position, &player, owned) in &mut query {
+        if !owned.0 && player == ev.player {
+          position.row += 1;
+        }
+      }
+      // spawn a new row
+      let mut rng = thread_rng();
+      let dist = WeightedIndex::new(BOARD_OBJS.iter().map(|item| item.weight)).unwrap();
+      for col in 0..BOARD_DIM.0 {
+        let item = BOARD_OBJS[dist.sample(&mut rng)].clone();
+        BoardObj::spawn(
+          &mut commands,
+          item.obj_type,
+          col,
+          0,
+          ev.player,
+          &asset_server,
+          &render_info,
+        );
       }
     }
   }
@@ -252,95 +576,56 @@ fn setup_game(
   let resolution = &window.single().resolution;
   let mut rng = thread_rng();
 
-  let transform_p1 = get_board_transform(game_state.players, Player::P1, resolution);
-  let transform_p2 = get_board_transform(game_state.players, Player::P2, resolution);
   let board_quad = get_board_quad(game_state.players, Player::P1, resolution);
 
   // Board
   commands.spawn(MaterialMesh2dBundle {
     mesh: meshes.add(board_quad.into()).into(),
     material: materials.add(ColorMaterial::from(Color::rgb(0.5, 0.5, 0.5))),
-    transform: transform_p1,
+    transform: render_info.transform_p1,
     ..default()
   });
   if game_state.players == 2 {
     commands.spawn(MaterialMesh2dBundle {
       mesh: meshes.add(board_quad.into()).into(),
       material: materials.add(ColorMaterial::from(Color::rgb(0.5, 0.5, 0.5))),
-      transform: transform_p2,
+      transform: render_info.transform_p2,
       ..default()
     });
   }
 
   // Initial Coins
   let dist = WeightedIndex::new(BOARD_OBJS.iter().map(|item| item.weight)).unwrap();
-  let coin_size: f32 = (board_quad.size.x
-    - 2.0 * BOARD_MARGIN.evaluate(board_quad.size.x).unwrap())
-    / BOARD_DIM.0 as f32;
-  // let top_left_coin_pos_p1: Vec2 = Vec2::new(
-  //   transform_p1.translation.x - 3.0 * coin_size,
-  //   transform_p1.translation.y + 5.5 * coin_size,
-  // );
-  // let top_left_coin_pos_p2: Vec2 = Vec2::new(
-  //   transform_p2.translation.x - 3.0 * coin_size,
-  //   transform_p2.translation.y + 5.5 * coin_size,
-  // );
-
   for row in 0..3 {
     for col in 0..BOARD_DIM.0 {
-      // let position_p1 = top_left_coin_pos_p1 + Vec2::new(col as f32, -(row as f32)) * coin_size;
-      // let position_p2 = top_left_coin_pos_p2 + Vec2::new(col as f32, -(row as f32)) * coin_size;
       let item = BOARD_OBJS[dist.sample(&mut rng)].clone();
-      let obj = BoardObjBundle::new(item, col, row, Player::P1, &asset_server, &render_info);
+      BoardObj::spawn(
+        &mut commands,
+        item.obj_type,
+        col,
+        row,
+        Player::P1,
+        &asset_server,
+        &render_info,
+      );
       if game_state.players == 2 {
-        commands.spawn(obj.other_player(&render_info));
+        BoardObj::spawn(
+          &mut commands,
+          item.obj_type,
+          col,
+          row,
+          Player::P2,
+          &asset_server,
+          &render_info,
+        );
       }
-      commands.spawn(obj);
     }
   }
 
   // Coin Girl
-  let coin_girl_pos =
-    (Vec2::new((BOARD_DIM.0 / 2) as f32, -((BOARD_DIM.1 - 1) as f32))) * coin_size;
-  commands.spawn((
-    SpriteBundle {
-      transform: Transform {
-        translation: render_info
-          .obj_translate(Player::P1, BOARD_DIM.0 / 2, BOARD_DIM.1 - 1)
-          .extend(GIRL_Z),
-        scale: Vec3::splat(coin_size * GIRL_SIZE_FACTOR),
-        ..default()
-      },
-      sprite: Sprite {
-        color: Color::rgb(50.0 / 255.0, 168.0 / 255.0, 82.0 / 255.0),
-        ..default()
-      },
-      ..default()
-    },
-    CoinGirl::new(Player::P1),
-  ));
-  println!(
-    "{:?}",
-    render_info.obj_translate(Player::P1, BOARD_DIM.0 / 2, BOARD_DIM.1 - 1)
-  );
+  CoinGirl::spawn(&mut commands, Player::P1, &render_info);
   if game_state.players == 2 {
-    commands.spawn((
-      SpriteBundle {
-        transform: Transform {
-          translation: render_info
-            .obj_translate(Player::P1, BOARD_DIM.0 / 2, BOARD_DIM.1 - 1)
-            .extend(GIRL_Z),
-          scale: Vec3::splat(coin_size * GIRL_SIZE_FACTOR),
-          ..default()
-        },
-        sprite: Sprite {
-          color: Color::rgb(50.0 / 255.0, 168.0 / 255.0, 82.0 / 255.0),
-          ..default()
-        },
-        ..default()
-      },
-      CoinGirl::new(Player::P2),
-    ));
+    CoinGirl::spawn(&mut commands, Player::P2, &render_info);
   }
 }
 
