@@ -39,7 +39,7 @@ impl RenderInfo {
     }
   }
 
-  pub fn obj_translate(&self, player: Player, col: usize, row: usize) -> Vec2 {
+  pub fn obj_translate(&self, player: Player, col: i32, row: i32) -> Vec2 {
     Vec2::new(
       self.board_transform(player).translation.x + (-3.0 + col as f32) * self.coin_size,
       self.board_transform(player).translation.y + (5.5 - row as f32) * self.coin_size,

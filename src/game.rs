@@ -37,7 +37,7 @@ struct InputTimer {
 
 #[derive(Component, Clone)]
 struct Inventory {
-  obj_count: usize,
+  obj_count: i32,
   obj_type: ObjType,
 }
 
@@ -83,8 +83,8 @@ impl CoinGirl {
 
 #[derive(PartialOrd, Hash, PartialEq, Eq, Debug, Component, Clone, Copy)]
 struct Position {
-  pub col: usize,
-  pub row: usize,
+  pub col: i32,
+  pub row: i32,
 }
 impl Ord for Position {
   fn cmp(&self, other: &Self) -> Ordering {
@@ -110,8 +110,8 @@ impl BoardObj {
   fn spawn(
     commands: &mut Commands,
     obj_type: ObjType,
-    col: usize,
-    row: usize,
+    col: i32,
+    row: i32,
     player: Player,
     asset_server: &Res<AssetServer>,
     render_info: &Res<RenderInfo>,
@@ -341,10 +341,10 @@ fn coin_push_handler(
 }
 
 fn get_connected(
-  coin_list: &Vec<(Option<Entity>, Position, &Player, ObjType)>,
+  coin_list: &Vec<(Entity, Position, &Player, ObjType)>,
   position: Position,
   player: Player,
-) -> Option<(ObjType, Vec<Position>)> {
+) -> Option<(ObjType, Vec<(Entity, Position)>)> {
   // println!("{:?}", position);
   // for c in coin_query {
   //   if *c.2 == player {//     println!("{:?} {:?}", c.1, c.3);
@@ -357,35 +357,31 @@ fn get_connected(
   let init_obj_type = coin.3.to_owned();
   let mut set = HashSet::new();
   let mut stack = Vec::new();
-  stack.push(position);
+  stack.push((coin.0, position));
   while !stack.is_empty() {
-    let coin = stack.pop().unwrap();
-    if !set.contains(&coin) {
-      if coin.col > 0 {
-        if let Some(adj_coin) = coin_list.iter().find(|(_, pos, _, obj_type)| {
-          *obj_type == init_obj_type && pos.col == coin.col - 1 && pos.row == coin.row
-        }) {
-          stack.push(adj_coin.1.to_owned());
-        }
+    let (coin_entity, coin_pos) = stack.pop().unwrap();
+    if !set.contains(&(coin_entity, coin_pos)) {
+      if let Some(adj_coin) = coin_list.iter().find(|(_, pos, _, obj_type)| {
+        *obj_type == init_obj_type && pos.col == coin_pos.col - 1 && pos.row == coin_pos.row
+      }) {
+        stack.push((adj_coin.0.to_owned(), adj_coin.1.to_owned()));
       }
       if let Some(adj_coin) = coin_list.iter().find(|(_, pos, _, obj_type)| {
-        *obj_type == init_obj_type && pos.col == coin.col + 1 && pos.row == coin.row
+        *obj_type == init_obj_type && pos.col == coin_pos.col + 1 && pos.row == coin_pos.row
       }) {
-        stack.push(adj_coin.1.to_owned());
-      }
-      if coin.row > 0 {
-        if let Some(adj_coin) = coin_list.iter().find(|(_, pos, _, obj_type)| {
-          *obj_type == init_obj_type && pos.col == coin.col && pos.row == coin.row - 1
-        }) {
-          stack.push(adj_coin.1.to_owned());
-        }
+        stack.push((adj_coin.0.to_owned(), adj_coin.1.to_owned()));
       }
       if let Some(adj_coin) = coin_list.iter().find(|(_, pos, _, obj_type)| {
-        *obj_type == init_obj_type && pos.col == coin.col && pos.row == coin.row + 1
+        *obj_type == init_obj_type && pos.col == coin_pos.col && pos.row == coin_pos.row - 1
       }) {
-        stack.push(adj_coin.1.to_owned());
+        stack.push((adj_coin.0.to_owned(), adj_coin.1.to_owned()));
       }
-      set.insert(coin);
+      if let Some(adj_coin) = coin_list.iter().find(|(_, pos, _, obj_type)| {
+        *obj_type == init_obj_type && pos.col == coin_pos.col && pos.row == coin_pos.row + 1
+      }) {
+        stack.push((adj_coin.0.to_owned(), adj_coin.1.to_owned()));
+      }
+      set.insert((coin_entity, coin_pos));
     }
   }
   Some((init_obj_type, set.into_iter().collect()))
@@ -398,85 +394,52 @@ fn merge_handler(
   asset_server: Res<AssetServer>,
   render_info: Res<RenderInfo>,
 ) {
-  let mut entities_to_remove: Vec<Entity> = Vec::new();
-  let mut entities_to_spawn = Vec::new();
+  // let mut entities_to_remove: Vec<Entity> = Vec::new();
+  // let mut entities_to_spawn = Vec::new();
   for ev in events.iter() {
-    let mut coin_list: Vec<(Option<Entity>, Position, &Player, ObjType)> = coin_query
+    let coin_list: Vec<(Entity, Position, &Player, ObjType)> = coin_query
       .iter()
       .filter(|&(_, _, &player, _)| player == ev.player)
-      .map(|x| (Some(x.0), x.1.to_owned(), x.2, x.3.to_owned()))
+      .map(|x| (x.0, x.1.to_owned(), x.2, x.3.to_owned()))
       .collect();
     let mut pos = ev.position.clone();
-    let (mut obj_type, mut coins) = get_connected(&coin_list, pos, ev.player).unwrap();
+    let (obj_type, coins) = get_connected(&coin_list, pos, ev.player).unwrap();
     let mut coin_count = coins.len();
     println!("{:?}, {}\n{:?}\n", obj_type, coins.len(), coins);
     // while coin_count >= obj_type.get_merge_count() {
-    while coin_count >= obj_type.get_merge_count() {
+    if coin_count >= obj_type.get_merge_count() {
       // actually merge
       // println!(
       //   "\nmerging {coin_count} {:?} coins that are at {:?}\n",
       //   obj_type, coins
       // );
+
       // create new coin
       let new_pos = coins
         .iter()
-        .max_by(|&pos_a, &pos_b| pos_a.cmp(pos_b))
+        .max_by(|&(_, pos_a), &(_, pos_b)| pos_a.cmp(pos_b))
         .unwrap()
-        .to_owned();
+        .to_owned()
+        .1;
       if let Some(new_type) = obj_type.get_upgrade() {
         println!("new {:?} at: {:?}", new_type, new_pos);
-        entities_to_spawn.push((new_type, new_pos, ev.player));
-        coin_list.push((None, new_pos, &ev.player, new_type));
+        BoardObj::spawn(
+          &mut commands,
+          new_type,
+          new_pos.col,
+          new_pos.row,
+          ev.player,
+          &asset_server,
+          &render_info,
+        );
       }
-
+      // entities_to_spawn.push((new_type, new_pos, ev.player));
+      // coin_list.push((None, new_pos, &ev.player, new_type));
       // remove existing coins
-      println!("removing coins at {:?}", coins);
-      for coin_pos in coins.iter() {
-        println!("entities to spawn pre retain: {:?}", entities_to_spawn);
-        entities_to_spawn.retain(|&(spawn_type, pos, player)| {
-          !(spawn_type == obj_type && *coin_pos == pos && player == ev.player)
-        });
-        println!("entities to spawn post retain: {:?}", entities_to_spawn);
-        if let Some(coin_index) = coin_list
-          .iter()
-          .position(|&(entity, pos, _, _)| *coin_pos == pos)
-        {
-          let (entity, _, _, _) = coin_list.remove(coin_index);
-          if let Some(e) = entity {
-            entities_to_remove.push(e);
-          }
-        }
+      for (entity, _) in coins {
+        commands.entity(entity).despawn();
       }
-      println!("entities to remove: {:?}", entities_to_remove);
-
-      pos = new_pos;
-      match get_connected(&coin_list, pos, ev.player) {
-        Some((a, b)) => {
-          obj_type = a;
-          coins = b;
-        }
-        None => break,
-      }
-      coin_count = coins.len();
     }
-    println!(
-      "removing: {:?}\nspawning: {:?}",
-      entities_to_remove, entities_to_spawn
-    );
-  }
-  for entity in entities_to_remove {
-    commands.entity(entity).despawn();
-  }
-  for (obj_type, pos, player) in entities_to_spawn {
-    BoardObj::spawn(
-      &mut commands,
-      obj_type,
-      pos.col,
-      pos.row,
-      player,
-      &asset_server,
-      &render_info,
-    );
   }
 }
 
@@ -521,7 +484,7 @@ fn coin_pull_handler(
         }
         let move_down_by = 12 - 1 - valid_coin_pos.first().unwrap().0.row;
         inventory.obj_type = coin_type;
-        inventory.obj_count = valid_coin_pos.len();
+        inventory.obj_count = valid_coin_pos.len() as i32;
         for (mut pos, entity) in valid_coin_pos {
           pos.row += move_down_by;
         }

@@ -82,7 +82,7 @@ pub const COIN_Z: f32 = 10.0;
 pub const UI_Z: f32 = 20.0;
 
 // Board Dimensions (width, height)
-pub const BOARD_DIM: (usize, usize) = (7, 12);
+pub const BOARD_DIM: (i32, i32) = (7, 12);
 
 #[derive(Component, Clone, Copy)]
 pub struct ObjInfo {
