@@ -8,7 +8,7 @@ use bevy::transform::commands;
 use bevy::utils::HashSet;
 use bevy::{prelude::*, window::WindowResolution};
 use devcaders::{DevcadeControls, Player};
-use itertools::Itertools;
+// use itertools::Itertools;
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 
@@ -20,6 +20,8 @@ enum ActionType {
   CoinPush,
   NewRow,
 }
+
+struct LoseEvent(Player);
 
 struct MergeEvent {
   player: Player,
@@ -160,12 +162,21 @@ impl Plugin for GamePlugin {
   fn build(&self, app: &mut App) {
     app
       .add_event::<GameActionEvent>()
+      .add_event::<LoseEvent>()
       .add_event::<MergeEvent>()
       .add_systems((
         setup_game.in_schedule(OnEnter(AppState::Game)),
         time.in_set(OnUpdate(AppState::Game)),
         render.in_set(OnUpdate(AppState::Game)),
-        // cleanup_game.in_schedule(OnExit(AppState::Game)),
+        cleanup_game.in_schedule(OnExit(AppState::Game)),
+        setup_lose_screen.in_schedule(OnEnter(AppState::Lost)),
+        cleanup_lose_screen.in_schedule(OnExit(AppState::Lost)),
+      ))
+      .add_systems((
+        check_lose
+          .before(game_input)
+          .in_set(OnUpdate(AppState::Game)),
+        lose_input.in_set(OnUpdate(AppState::Lost)),
       ))
       .add_systems((
         game_input.before(render).in_set(OnUpdate(AppState::Game)),
@@ -183,8 +194,7 @@ impl Plugin for GamePlugin {
           .before(render)
           .in_set(OnUpdate(AppState::Game)),
         coin_fall
-          // .before(merge_handler)
-          .before(game_input)
+          .before(new_row_handler)
           .before(render)
           .in_set(OnUpdate(AppState::Game)),
       ));
@@ -402,19 +412,19 @@ fn coin_fall(mut coin_query: Query<(&mut Position, &Owned, &Player), With<BoardO
       if owned.0 || coin_player != player {
         continue;
       }
+      if coin_pos.row >= BOARD_DIM.1 {
+        return;
+      }
       let row = coin_pos.row as usize;
       let col = coin_pos.col as usize;
       coin_board[col][row] = true;
     }
-    println!("{:?}", coin_board);
     for (col, column) in coin_board.iter().enumerate() {
       let mut gap_size: usize = 0;
-      println!("{}, {:?}", col, column);
       for (row, &coin) in column.iter().enumerate() {
         if !coin {
           gap_size += 1;
         }
-        println!("{:?}, {}", coin, gap_size);
         if coin && gap_size > 0 {
           coins_to_shift.push((
             Position {
@@ -426,9 +436,7 @@ fn coin_fall(mut coin_query: Query<(&mut Position, &Owned, &Player), With<BoardO
         }
       }
     }
-    if !coins_to_shift.is_empty() {
-      println!("{:?}", coins_to_shift);
-    }
+    if !coins_to_shift.is_empty() {}
     for (pos, gap) in coins_to_shift {
       coin_query
         .iter_mut()
@@ -572,6 +580,75 @@ fn new_row_handler(
   }
 }
 
+fn check_lose(
+  mut next_state: ResMut<NextState<AppState>>,
+  coin_query: Query<(&Position, &Player), With<BoardObj>>,
+  mut event_writer: EventWriter<LoseEvent>,
+) {
+  for (coin_pos, &player) in &coin_query {
+    if coin_pos.row >= BOARD_DIM.1 {
+      next_state.set(AppState::Lost);
+      event_writer.send(LoseEvent(player));
+    }
+  }
+}
+
+fn setup_lose_screen(
+  mut commands: Commands,
+  mut event_reader: EventReader<LoseEvent>,
+  asset_server: Res<AssetServer>,
+) {
+  let text_style = TextStyle {
+    font_size: 100.0,
+    color: Color::WHITE,
+    font: asset_server.load("Evogria.otf"),
+  };
+  for ev in &mut event_reader {
+    println!("{:?}", ev.0);
+    commands.spawn((
+      Text2dBundle {
+        text: Text::from_section(
+          format!("{:?} Lost!\nWhite Button to play again.", ev.0),
+          text_style.clone(),
+        )
+        .with_alignment(TextAlignment::Center),
+        transform: Transform::from_translation(Vec3::ZERO * (UI_Z + 1.0)),
+        ..default()
+      },
+      UIText,
+    ));
+  }
+}
+
+#[derive(Component)]
+struct UIText;
+
+fn cleanup_lose_screen(mut commands: Commands, query: Query<Entity, With<UIText>>) {
+  for entity in &query {
+    commands.entity(entity).despawn_recursive();
+  }
+}
+
+fn lose_input(input: DevcadeControls, mut next_state: ResMut<NextState<AppState>>) {
+  if input.just_pressed(Player::P1, devcaders::Button::A4)
+    || input.just_pressed(Player::P2, devcaders::Button::A4)
+  {
+    next_state.set(AppState::Game);
+  }
+}
+
+fn cleanup_game(
+  mut commands: Commands,
+  query: Query<Entity, Or<(With<BoardObj>, With<UIElement>, With<CoinGirl>)>>,
+) {
+  for entity in &query {
+    commands.entity(entity).despawn_recursive();
+  }
+}
+
+#[derive(Component)]
+struct UIElement;
+
 fn setup_game(
   mut commands: Commands,
   mut materials: ResMut<Assets<ColorMaterial>>,
@@ -587,19 +664,25 @@ fn setup_game(
   let board_quad = get_board_quad(game_state.players, Player::P1, resolution);
 
   // Board
-  commands.spawn(MaterialMesh2dBundle {
-    mesh: meshes.add(board_quad.into()).into(),
-    material: materials.add(ColorMaterial::from(Color::rgb(0.5, 0.5, 0.5))),
-    transform: render_info.transform_p1,
-    ..default()
-  });
-  if game_state.players == 2 {
-    commands.spawn(MaterialMesh2dBundle {
+  commands.spawn((
+    MaterialMesh2dBundle {
       mesh: meshes.add(board_quad.into()).into(),
       material: materials.add(ColorMaterial::from(Color::rgb(0.5, 0.5, 0.5))),
-      transform: render_info.transform_p2,
+      transform: render_info.transform_p1,
       ..default()
-    });
+    },
+    UIElement,
+  ));
+  if game_state.players == 2 {
+    commands.spawn((
+      MaterialMesh2dBundle {
+        mesh: meshes.add(board_quad.into()).into(),
+        material: materials.add(ColorMaterial::from(Color::rgb(0.5, 0.5, 0.5))),
+        transform: render_info.transform_p2,
+        ..default()
+      },
+      UIElement,
+    ));
   }
 
   // Initial Coins

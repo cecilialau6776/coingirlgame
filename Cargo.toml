@@ -7,17 +7,16 @@ edition = "2021"
 
 [dependencies]
 rand = "0.8.5"
-# devcaders = "0.2.2"
-devcaders = {path = "../devcaders"}
-bevy_turborand = "0.5.0"
-itertools = "0.10.5"
+devcaders = "0.3.1"
+# devcaders = {path = "../devcaders"}
+# bevy_turborand = "0.5.0"
 
 [dependencies.bevy]
 version = "0.10.0"
-features = ["dynamic_linking"]
+# features = ["dynamic_linking"]
 
 [profile.dev]
-opt-level = 1
+opt-level = 2
 
 [profile.dev.package."*"]
 opt-level = 3
@@ -25,6 +24,6 @@ opt-level = 3
 # [target.'cfg(debug_assertions)'.dependencies.bevy]
 # features = ["dynamic_linking"]
 
-[target.x86_64-unknown-linux-gnu]
-linker = "clang"
-rustflags = ["-Clink-arg=-fuse-ld=lld"]
+# [target.x86_64-unknown-linux-gnu]
+# linker = "clang"
+# rustflags = ["-Clink-arg=-fuse-ld=lld"]

@@ -9,7 +9,7 @@ pub enum AppState {
   Menu,
   #[default]
   Game,
-  MakeMap,
+  Lost,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Component)]
