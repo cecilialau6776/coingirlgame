@@ -761,17 +761,32 @@ pub fn get_board_transform(
   player: Player,
   resolution: &WindowResolution,
 ) -> Transform {
-  let avail_x = resolution.width();
-  // let avail_x = if players == 1 {
-  //   resolution.width()
-  // } else {
-  //   resolution.width() / 2.0
-  // };
-  let avail_y = if players == 1 {
-    resolution.height()
+  let avail_x: f32;
+  let avail_y: f32;
+  if players == 2 {
+    // figure out divide screen vertically or horizontally
+    if resolution.width() > resolution.height() {
+      // split horizontally
+      avail_x = resolution.width() / 2.0;
+      avail_y = resolution.height();
+      if player == Player::P1 {
+        return Transform::from_translation(Vec3::new(-resolution.width() / 4.0, 0.0, BOARD_Z));
+      } else {
+        return Transform::from_translation(Vec3::new(resolution.width() / 4.0, 0.0, BOARD_Z));
+      }
+    } else {
+      // split vertically
+      avail_x = resolution.width();
+      avail_y = resolution.height() / 2.0;
+      if player == Player::P1 {
+        return Transform::from_translation(Vec3::new(0.0, resolution.height() / 4.0, BOARD_Z));
+      } else {
+        return Transform::from_translation(Vec3::new(0.0, -resolution.height() / 4.0, BOARD_Z));
+      }
+    }
   } else {
-    resolution.height() / 2.0
-  };
+    return Transform::from_translation(Vec3::new(0.0, 0.0, BOARD_Z));
+  }
 
   let x: f32;
   let y: f32;

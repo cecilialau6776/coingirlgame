@@ -156,12 +156,12 @@ fn main() {
           primary_window: Some(Window {
             mode: bevy::window::WindowMode::Fullscreen,
             // resolution: WindowResolution::new(RESOLUTION_X, RESOLUTION_Y), //.with_scale_factor_override(0.5874),
-            // resize_constraints: WindowResizeConstraints {
-            //   min_width: 634.5,
-            //   min_height: 1504.0,
-            //   max_width: 634.5,
-            //   max_height: 1504.0,
-            // },
+            resize_constraints: WindowResizeConstraints {
+              min_width: 1080.0,
+              min_height: 2560.0,
+              max_width: 1080.0,
+              max_height: 2560.0,
+            },
             ..default()
           }),
           ..default()
