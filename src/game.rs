@@ -197,7 +197,9 @@ impl Plugin for GamePlugin {
           .before(new_row_handler)
           .before(render)
           .in_set(OnUpdate(AppState::Game)),
-      ));
+      ))
+      .add_system(new_row.in_schedule(CoreSchedule::FixedUpdate))
+      .insert_resource(FixedTime::new_from_secs(4.5));
   }
 }
 
@@ -543,6 +545,19 @@ fn coin_pull_handler(
         }
       }
     }
+  }
+}
+
+fn new_row(mut events: EventWriter<GameActionEvent>, game_info: Res<GameInfo>) {
+  events.send(GameActionEvent {
+    player: Player::P1,
+    action_type: ActionType::NewRow,
+  });
+  if game_info.players == 2 {
+    events.send(GameActionEvent {
+      player: Player::P2,
+      action_type: ActionType::NewRow,
+    });
   }
 }
 

@@ -13,7 +13,6 @@ devcaders = "0.3.1"
 
 [dependencies.bevy]
 version = "0.10.0"
-# features = ["dynamic_linking"]
 
 [profile.dev]
 opt-level = 2
@@ -21,10 +20,10 @@ opt-level = 2
 [profile.dev.package."*"]
 opt-level = 3
 
+[features]
+default = ["bevy/dynamic_linking"]
+devcade = []
 
-# [target.'cfg(debug_assertions)'.dependencies.bevy]
-# features = ["dynamic_linking"]
-
-# [target.x86_64-unknown-linux-gnu]
-# linker = "clang"
-# rustflags = ["-Clink-arg=-fuse-ld=lld"]
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-Clink-arg=-fuse-ld=lld"]

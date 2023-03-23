@@ -176,6 +176,6 @@ fn main() {
     .add_plugin(MenuPlugin)
     .add_plugin(GamePlugin)
     .add_system(devcaders::close_on_menu_buttons)
-    .insert_resource(FixedTime::new_from_secs(1.0 / 30.0))
+    // .insert_resource(FixedTime::new_from_secs(1.0 / 30.0))
     .run();
 }
