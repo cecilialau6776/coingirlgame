@@ -623,7 +623,7 @@ fn setup_lose_screen(
     commands.spawn((
       Text2dBundle {
         text: Text::from_section(
-          format!("{:?} Lost!\nWhite Button to play again.", ev.0),
+          format!("{:?} Lost!\nWhite Button to return to menu.", ev.0),
           text_style.clone(),
         )
         .with_alignment(TextAlignment::Center),
@@ -648,7 +648,7 @@ fn lose_input(input: DevcadeControls, mut next_state: ResMut<NextState<AppState>
   if input.just_pressed(Player::P1, devcaders::Button::A4)
     || input.just_pressed(Player::P2, devcaders::Button::A4)
   {
-    next_state.set(AppState::Game);
+    next_state.set(AppState::Menu);
   }
 }
 
