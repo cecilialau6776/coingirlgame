@@ -68,6 +68,16 @@ fn update_render_info(
   game_info: Res<GameInfo>,
   window: Query<&mut Window>,
 ) {
+  if game_info.is_changed() {
+    let board_quad = get_board_quad(game_info.players, Player::P1, &window.single().resolution);
+    render_info.transform_p1 =
+      get_board_transform(game_info.players, Player::P1, &window.single().resolution);
+    render_info.transform_p2 =
+      get_board_transform(game_info.players, Player::P2, &window.single().resolution);
+    render_info.coin_size = (board_quad.size.x
+      - 2.0 * BOARD_MARGIN.evaluate(board_quad.size.x).unwrap())
+      / BOARD_DIM.0 as f32;
+  }
   for ev in event.iter() {
     let board_quad = get_board_quad(game_info.players, Player::P1, &window.single().resolution);
     render_info.transform_p1 =
@@ -155,13 +165,13 @@ fn main() {
         .set(WindowPlugin {
           primary_window: Some(Window {
             mode: bevy::window::WindowMode::Fullscreen,
-            // resolution: WindowResolution::new(RESOLUTION_X, RESOLUTION_Y), //.with_scale_factor_override(0.5874),
-            resize_constraints: WindowResizeConstraints {
-              min_width: 1080.0,
-              min_height: 2560.0,
-              max_width: 1080.0,
-              max_height: 2560.0,
-            },
+            resolution: WindowResolution::new(RESOLUTION_X, RESOLUTION_Y), //.with_scale_factor_override(0.5874),
+            // resize_constraints: WindowResizeConstraints {
+            //   min_width: 1080.0,
+            //   min_height: 2560.0,
+            //   max_width: 1080.0,
+            //   max_height: 2560.0,
+            // },
             ..default()
           }),
           ..default()
@@ -175,7 +185,7 @@ fn main() {
     .add_startup_system(init_render_info)
     .add_plugin(MenuPlugin)
     .add_plugin(GamePlugin)
-    .add_system(devcaders::close_on_menu_buttons)
+    .add_systems((devcaders::close_on_menu_buttons, update_render_info))
     // .insert_resource(FixedTime::new_from_secs(1.0 / 30.0))
     .run();
 }

@@ -6,8 +6,8 @@ pub const APP_STATE_STAGE: &str = "app_state_stage";
 /// States
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
 pub enum AppState {
-  Menu,
   #[default]
+  Menu,
   Game,
   Lost,
 }

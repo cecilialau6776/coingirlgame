@@ -517,9 +517,6 @@ fn coin_pull_handler(
       if ev.player != girl_player {
         continue;
       }
-      if inventory.obj_count != 0 {
-        return;
-      }
       let mut coins = Vec::new();
       for (entity, coin_pos, &coin_player, &obj, owned) in &mut coin_query {
         if !owned.0 && girl_player == coin_player && girl_pos.col == coin_pos.col {
@@ -530,6 +527,9 @@ fn coin_pull_handler(
       let first_coin = coins.first();
       let mut valid_coin_pos = Vec::new();
       if let Some(&(_, coin_type, _, _)) = first_coin {
+        if inventory.obj_count != 0 && coin_type != inventory.obj_type {
+          continue;
+        }
         for (coin_pos, obj_type, entity, mut owned) in coins {
           if coin_type != obj_type {
             break;
@@ -537,9 +537,9 @@ fn coin_pull_handler(
           valid_coin_pos.push((coin_pos, entity));
           owned.0 = true;
         }
-        let move_down_by = 12 - 1 - valid_coin_pos.first().unwrap().0.row;
+        let move_down_by = 12 - 1 - valid_coin_pos.first().unwrap().0.row - inventory.obj_count;
         inventory.obj_type = coin_type;
-        inventory.obj_count = valid_coin_pos.len() as i32;
+        inventory.obj_count += valid_coin_pos.len() as i32;
         for (mut pos, entity) in valid_coin_pos {
           pos.row += move_down_by;
         }
