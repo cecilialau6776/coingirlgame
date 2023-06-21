@@ -8,14 +8,12 @@ edition = "2021"
 [dependencies]
 rand = "0.8.5"
 devcaders = "0.3.1"
-# devcaders = {path = "../devcaders"}
-# bevy_turborand = "0.5.0"
 
 [dependencies.bevy]
-version = "0.10.0"
+version = "0.10.1"
 
 [profile.dev]
-opt-level = 2
+opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
